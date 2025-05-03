@@ -5,9 +5,13 @@ const { YoutubeTranscript } = require('youtube-transcript');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// CORS configuration
+// CORS configuration: allow only Cloudflare Pages and localhost
 app.use(cors({
-    origin: ['https://youscriptt.pages.dev', 'https://*.pages.dev', 'http://localhost:3000', 'http://localhost:10000'],
+    origin: [
+        'https://youscriptt.pages.dev', // Cloudflare Pages frontend
+        'http://localhost:3000',        // Local frontend
+        'http://localhost:10000'        // Local backend
+    ],
     methods: ['GET', 'POST', 'OPTIONS'],
     credentials: true,
     allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'Accept']
