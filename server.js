@@ -5,14 +5,12 @@ const { YoutubeTranscript } = require('youtube-transcript');
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// CORS configuration for production and development
+// CORS configuration
 app.use(cors({
-    origin: process.env.NODE_ENV === 'production'
-        ? ['https://youscriptt.pages.dev']  // Cloudflare Pages frontend URL
-        : ['http://localhost:3000', 'http://localhost:10000', 'http://127.0.0.1:3000', 'http://127.0.0.1:10000'],
+    origin: ['https://youscriptt.pages.dev', 'https://*.pages.dev', 'http://localhost:3000', 'http://localhost:10000'],
     methods: ['GET', 'POST', 'OPTIONS'],
     credentials: true,
-    allowedHeaders: ['Content-Type', 'Authorization']
+    allowedHeaders: ['Content-Type', 'Authorization', 'Origin', 'Accept']
 }));
 
 app.use(express.json());
