@@ -4,6 +4,7 @@ const cors = require('cors');
 const path = require('path');
 const { ApifyClient } = require('apify-client');
 const rateLimit = require('express-rate-limit');
+const { exec } = require('child_process');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -77,6 +78,69 @@ app.get('/api/transcript/:videoId', async (req, res) => {
             message: error.message 
         });
     }
+});
+
+// POST endpoint using curl for Apify API
+app.post('/api/transcript-curl', async (req, res) => {
+    const { videoUrl } = req.body;
+    if (!videoUrl) {
+        return res.status(400).json({ error: 'Missing videoUrl' });
+    }
+    const apiToken = process.env.APIFY_API_KEY;
+    const inputJson = JSON.stringify({ videoUrls: [videoUrl] });
+    // Write input.json to disk
+    const fs = require('fs');
+    fs.writeFileSync('input.json', inputJson);
+    const curlCmd = `curl "https://api.apify.com/v2/acts/L57jETyu9qT6J7bs5/runs?token=${apiToken}" -X POST -d @input.json -H 'Content-Type: application/json'`;
+    exec(curlCmd, (error, stdout, stderr) => {
+        if (error) {
+            console.error('curl error:', error);
+            return res.status(500).json({ error: 'Failed to start Apify actor', details: stderr });
+        }
+        try {
+            const runData = JSON.parse(stdout);
+            const runId = runData.data.id;
+            // Poll for results (simple version, not production-grade)
+            const pollCmd = `curl "https://api.apify.com/v2/actor-runs/${runId}?token=${apiToken}"`;
+            let attempts = 0;
+            const poll = () => {
+                exec(pollCmd, (pollErr, pollStdout) => {
+                    if (pollErr) {
+                        return res.status(500).json({ error: 'Polling error', details: pollErr });
+                    }
+                    const pollData = JSON.parse(pollStdout);
+                    if (pollData.data.status === 'SUCCEEDED') {
+                        // Get output
+                        const outputCmd = `curl "https://api.apify.com/v2/actor-runs/${runId}/dataset/items?token=${apiToken}"`;
+                        exec(outputCmd, (outErr, outStdout) => {
+                            if (outErr) {
+                                return res.status(500).json({ error: 'Output fetch error', details: outErr });
+                            }
+                            try {
+                                const output = JSON.parse(outStdout);
+                                if (output[0] && output[0].transcript) {
+                                    return res.json(output[0].transcript);
+                                } else {
+                                    return res.status(404).json({ error: 'Transcript not found in output' });
+                                }
+                            } catch (parseErr) {
+                                return res.status(500).json({ error: 'Output parse error', details: parseErr });
+                            }
+                        });
+                    } else if (['FAILED', 'ABORTED', 'TIMED-OUT'].includes(pollData.data.status)) {
+                        return res.status(500).json({ error: 'Apify actor failed', status: pollData.data.status });
+                    } else if (attempts++ < 30) {
+                        setTimeout(poll, 1000);
+                    } else {
+                        return res.status(504).json({ error: 'Timed out waiting for Apify actor' });
+                    }
+                });
+            };
+            poll();
+        } catch (parseErr) {
+            return res.status(500).json({ error: 'Run parse error', details: parseErr });
+        }
+    });
 });
 
 // Health check endpoint
