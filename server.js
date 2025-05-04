@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const captions = require('node-youtube-captions');
+const YouTube = require('youtube-sr').default;
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -24,11 +24,19 @@ app.get('/api/transcript/:videoId', async (req, res) => {
             });
         }
 
-        console.log('[DEBUG] Calling captions.getSubtitles...');
-        const transcript = await captions.getSubtitles({
-            videoId: videoId,
-            lang: 'en'  // Try forcing English
-        });
+        console.log('[DEBUG] Calling YouTube.getVideo...');
+        const video = await YouTube.getVideo(`https://www.youtube.com/watch?v=${videoId}`);
+        
+        if (!video) {
+            console.error('[ERROR] Video not found:', videoId);
+            return res.status(404).json({
+                error: 'Video not found',
+                details: 'Could not find the specified video'
+            });
+        }
+
+        console.log('[DEBUG] Fetching transcript...');
+        const transcript = await video.fetchTranscript();
         
         console.log('[DEBUG] Raw transcript response:', JSON.stringify(transcript));
 
@@ -58,8 +66,8 @@ app.get('/api/transcript/:videoId', async (req, res) => {
         });
         
         // Check for specific error types
-        if (error.message.includes('Could not find captions') || 
-            error.message.includes('No captions found')) {
+        if (error.message.includes('No captions found') || 
+            error.message.includes('Transcript not available')) {
             return res.status(404).json({
                 error: 'No transcript available',
                 message: 'This video does not have captions available',
