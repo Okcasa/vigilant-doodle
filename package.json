@@ -10,7 +10,7 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.21.2",
-    "youtube-transcript-api": "^1.0.1"
+    "youtube-caption-scraper": "^1.1.2"
   },
   "engines": {
     "node": ">=14.0.0"

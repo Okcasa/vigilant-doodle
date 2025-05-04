@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { getTranscript } = require('youtube-transcript-api');
+const getSubtitles = require('youtube-caption-scraper');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -24,10 +24,10 @@ app.get('/api/transcript/:videoId', async (req, res) => {
             });
         }
 
-        console.log('[DEBUG] Calling getTranscript...');
-        const transcript = await getTranscript(videoId, {
-            lang: 'en',  // Try forcing English
-            country: 'US' // Try forcing US region
+        console.log('[DEBUG] Calling getSubtitles...');
+        const transcript = await getSubtitles({
+            videoID: videoId,
+            lang: 'en'  // Try forcing English
         });
         
         console.log('[DEBUG] Raw transcript response:', JSON.stringify(transcript));
@@ -40,8 +40,15 @@ app.get('/api/transcript/:videoId', async (req, res) => {
             });
         }
 
-        console.log(`[SUCCESS] Fetched transcript with ${transcript.length} entries`);
-        res.json(transcript);
+        // Transform the response to match our expected format
+        const formattedTranscript = transcript.map(item => ({
+            text: item.text,
+            start: item.start,
+            duration: item.dur
+        }));
+
+        console.log(`[SUCCESS] Fetched transcript with ${formattedTranscript.length} entries`);
+        res.json(formattedTranscript);
     } catch (error) {
         console.error('[ERROR] Error fetching transcript:', {
             videoId: req.params.videoId,
