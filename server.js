@@ -17,17 +17,18 @@ async function initBrowser() {
     try {
         browser = await puppeteer.launch({
             headless: 'new',
+            executablePath: '/usr/bin/chromium-browser',
             args: [
                 '--no-sandbox',
                 '--disable-setuid-sandbox',
                 '--disable-dev-shm-usage',
-                '--disable-accelerated-2d-canvas',
-                '--disable-gpu'
+                '--single-process'
             ]
         });
         console.log('[STARTUP] Browser initialized successfully');
     } catch (error) {
         console.error('[ERROR] Failed to initialize browser:', error);
+        throw error;
     }
 }
 
