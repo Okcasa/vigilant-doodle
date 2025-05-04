@@ -12,8 +12,27 @@ const limiter = rateLimit({
     max: 100 // limit each IP to 100 requests per windowMs
 });
 
+// CORS configuration
+const corsOptions = {
+    origin: [
+        'http://localhost:3000',
+        'http://localhost:5000',
+        'http://localhost:8000',
+        'http://localhost:10000',
+        'http://127.0.0.1:3000',
+        'http://127.0.0.1:5000',
+        'http://127.0.0.1:8000',
+        'http://127.0.0.1:10000',
+        // Add your frontend domain here
+        'http://18.206.146.89:10000'
+    ],
+    methods: ['GET', 'POST'],
+    allowedHeaders: ['Content-Type', 'Authorization'],
+    credentials: true
+};
+
 app.use(limiter);
-app.use(cors());
+app.use(cors(corsOptions));
 app.use(express.json());
 
 // Retry function with exponential backoff
