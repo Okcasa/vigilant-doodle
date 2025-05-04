@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { YoutubeTranscript } = require('youtube-transcript');
+const { getTranscript } = require('youtube-transcript-api');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -24,8 +24,8 @@ app.get('/api/transcript/:videoId', async (req, res) => {
             });
         }
 
-        console.log('[DEBUG] Calling YoutubeTranscript.fetchTranscript...');
-        const transcript = await YoutubeTranscript.fetchTranscript(videoId, {
+        console.log('[DEBUG] Calling getTranscript...');
+        const transcript = await getTranscript(videoId, {
             lang: 'en',  // Try forcing English
             country: 'US' // Try forcing US region
         });
@@ -82,5 +82,5 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
     console.log(`[STARTUP] Server running on port ${PORT}`);
     console.log(`[STARTUP] Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log('[STARTUP] Youtube Transcript version:', require('youtube-transcript/package.json').version);
+    console.log('[STARTUP] Youtube Transcript API version:', require('youtube-transcript-api/package.json').version);
 }); 
