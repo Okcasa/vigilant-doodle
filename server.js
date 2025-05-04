@@ -1,14 +1,34 @@
 const express = require('express');
 const cors = require('cors');
 const ytdl = require('ytdl-core');
+const rateLimit = require('express-rate-limit');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
 
-// CORS configuration
-app.use(cors());  // Allow all origins for testing
+// Rate limiting
+const limiter = rateLimit({
+    windowMs: 15 * 60 * 1000, // 15 minutes
+    max: 100 // limit each IP to 100 requests per windowMs
+});
 
+app.use(limiter);
+app.use(cors());
 app.use(express.json());
+
+// Retry function with exponential backoff
+async function retryWithBackoff(fn, maxRetries = 3) {
+    for (let i = 0; i < maxRetries; i++) {
+        try {
+            return await fn();
+        } catch (error) {
+            if (i === maxRetries - 1) throw error;
+            const delay = Math.pow(2, i) * 1000; // exponential backoff: 1s, 2s, 4s
+            console.log(`[RETRY] Attempt ${i + 1} failed, retrying in ${delay}ms`);
+            await new Promise(resolve => setTimeout(resolve, delay));
+        }
+    }
+}
 
 // API Routes
 app.get('/api/transcript/:videoId', async (req, res) => {
@@ -25,8 +45,17 @@ app.get('/api/transcript/:videoId', async (req, res) => {
         }
 
         console.log('[DEBUG] Fetching video info...');
-        const videoInfo = await ytdl.getInfo(videoId);
         
+        const videoInfo = await retryWithBackoff(async () => {
+            return await ytdl.getInfo(videoId, {
+                requestOptions: {
+                    headers: {
+                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                    }
+                }
+            });
+        });
+
         // Get captions from video info
         const captions = videoInfo.player_response.captions;
         if (!captions || !captions.playerCaptionsTracklistRenderer) {
@@ -52,9 +81,22 @@ app.get('/api/transcript/:videoId', async (req, res) => {
             });
         }
 
-        // Fetch the actual transcript
-        const response = await fetch(englishTrack.baseUrl);
-        const xml = await response.text();
+        // Fetch the actual transcript with retry logic
+        const fetchTranscript = async () => {
+            const response = await fetch(englishTrack.baseUrl, {
+                headers: {
+                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
+                }
+            });
+            
+            if (!response.ok) {
+                throw new Error(`HTTP error! status: ${response.status}`);
+            }
+            
+            return await response.text();
+        };
+
+        const xml = await retryWithBackoff(fetchTranscript);
         
         // Parse the XML to get transcript entries
         const transcript = xml
@@ -86,6 +128,16 @@ app.get('/api/transcript/:videoId', async (req, res) => {
             errorMessage: error.message,
             errorStack: error.stack
         });
+        
+        // Specific error handling for common YouTube errors
+        if (error.message.includes('410')) {
+            return res.status(429).json({
+                error: 'Rate limit exceeded',
+                message: 'Too many requests to YouTube. Please try again later.',
+                name: error.name,
+                details: 'YouTube temporarily blocked our request'
+            });
+        }
         
         res.status(500).json({ 
             error: 'Failed to fetch transcript',
