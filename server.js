@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const puppeteer = require('puppeteer');
+const ytdl = require('ytdl-core');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -9,89 +9,6 @@ const PORT = process.env.PORT || 10000;
 app.use(cors());  // Allow all origins for testing
 
 app.use(express.json());
-
-let browser;
-
-// Initialize browser on startup
-async function initBrowser() {
-    try {
-        browser = await puppeteer.launch({
-            headless: 'new',
-            executablePath: '/usr/bin/chromium-browser',
-            args: [
-                '--no-sandbox',
-                '--disable-setuid-sandbox',
-                '--disable-dev-shm-usage',
-                '--single-process'
-            ]
-        });
-        console.log('[STARTUP] Browser initialized successfully');
-    } catch (error) {
-        console.error('[ERROR] Failed to initialize browser:', error);
-        throw error;
-    }
-}
-
-// Function to fetch transcript
-async function fetchTranscript(videoId) {
-    if (!browser) {
-        await initBrowser();
-    }
-
-    const page = await browser.newPage();
-    try {
-        // Navigate to the transcript page
-        await page.goto(`https://www.youtube.com/watch?v=${videoId}&hl=en`, {
-            waitUntil: 'networkidle0',
-            timeout: 30000
-        });
-
-        // Click the more actions button
-        await page.waitForSelector('button[aria-label="More actions"]');
-        await page.click('button[aria-label="More actions"]');
-
-        // Wait for and click the "Show transcript" button
-        await page.waitForSelector('button[aria-label="Show transcript"]');
-        await page.click('button[aria-label="Show transcript"]');
-
-        // Wait for the transcript panel to load
-        await page.waitForSelector('div[class*="segment-text"]');
-
-        // Extract the transcript
-        const transcript = await page.evaluate(() => {
-            const segments = document.querySelectorAll('div[class*="segment-timestamp"], div[class*="segment-text"]');
-            const transcript = [];
-            let currentTime = 0;
-            let currentText = '';
-
-            for (let i = 0; i < segments.length; i += 2) {
-                const timestamp = segments[i].textContent;
-                const text = segments[i + 1]?.textContent || '';
-
-                // Convert timestamp (mm:ss) to seconds
-                const [minutes, seconds] = timestamp.split(':').map(Number);
-                const startTime = minutes * 60 + seconds;
-
-                transcript.push({
-                    text: text.trim(),
-                    start: startTime,
-                    duration: i + 2 < segments.length ? 
-                        (segments[i + 2]?.textContent.split(':').map(Number).reduce((m, s) => m * 60 + s) - startTime) : 
-                        5 // Default duration for last segment
-                });
-            }
-
-            return transcript;
-        });
-
-        return transcript;
-    } catch (error) {
-        console.error('[ERROR] Error in fetchTranscript:', error);
-        throw new Error('Failed to fetch transcript: ' + error.message);
-    } finally {
-        await page.close();
-    }
-}
 
 // API Routes
 app.get('/api/transcript/:videoId', async (req, res) => {
@@ -107,16 +24,58 @@ app.get('/api/transcript/:videoId', async (req, res) => {
             });
         }
 
-        console.log('[DEBUG] Fetching transcript...');
-        const transcript = await fetchTranscript(videoId);
+        console.log('[DEBUG] Fetching video info...');
+        const videoInfo = await ytdl.getInfo(videoId);
         
-        if (!transcript || transcript.length === 0) {
-            console.error('[ERROR] No transcript found for video:', videoId);
+        // Get captions from video info
+        const captions = videoInfo.player_response.captions;
+        if (!captions || !captions.playerCaptionsTracklistRenderer) {
+            console.error('[ERROR] No captions available for video:', videoId);
             return res.status(404).json({
                 error: 'No transcript available',
-                details: 'No transcript was found for this video'
+                details: 'This video does not have captions'
             });
         }
+
+        // Get English captions or the first available caption track
+        const captionTracks = captions.playerCaptionsTracklistRenderer.captionTracks;
+        const englishTrack = captionTracks.find(track => 
+            track.languageCode === 'en' || 
+            track.vssId.includes('.en')
+        ) || captionTracks[0];
+
+        if (!englishTrack) {
+            console.error('[ERROR] No suitable caption track found:', videoId);
+            return res.status(404).json({
+                error: 'No transcript available',
+                details: 'Could not find suitable captions for this video'
+            });
+        }
+
+        // Fetch the actual transcript
+        const response = await fetch(englishTrack.baseUrl);
+        const xml = await response.text();
+        
+        // Parse the XML to get transcript entries
+        const transcript = xml
+            .match(/<text[^>]*>[^<]*<\/text>/g)
+            .map(item => {
+                const start = parseFloat(item.match(/start="([^"]+)"/)[1]);
+                const duration = parseFloat(item.match(/dur="([^"]+)"/)[1]);
+                const text = item
+                    .match(/>([^<]*)</)[1]
+                    .replace(/&amp;/g, '&')
+                    .replace(/&lt;/g, '<')
+                    .replace(/&gt;/g, '>')
+                    .replace(/&quot;/g, '"')
+                    .replace(/&#39;/g, "'");
+                
+                return {
+                    text,
+                    start,
+                    duration
+                };
+            });
 
         console.log(`[SUCCESS] Fetched transcript with ${transcript.length} entries`);
         res.json(transcript);
@@ -156,10 +115,7 @@ app.use((err, req, res, next) => {
     });
 });
 
-// Initialize browser and start server
-initBrowser().then(() => {
-    app.listen(PORT, () => {
-        console.log(`[STARTUP] Server running on port ${PORT}`);
-        console.log(`[STARTUP] Environment: ${process.env.NODE_ENV || 'development'}`);
-    });
+app.listen(PORT, () => {
+    console.log(`[STARTUP] Server running on port ${PORT}`);
+    console.log(`[STARTUP] Environment: ${process.env.NODE_ENV || 'development'}`);
 }); 
