@@ -1,6 +1,8 @@
+require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const ytdl = require('ytdl-core');
+const path = require('path');
+const { ApifyClient } = require('apify-client');
 const rateLimit = require('express-rate-limit');
 
 const app = express();
@@ -31,138 +33,48 @@ const corsOptions = {
     credentials: true
 };
 
+// Initialize Apify client
+const apifyClient = new ApifyClient({
+    token: process.env.APIFY_API_KEY,
+    maxRetries: 8,
+    minDelayBetweenRetriesMillis: 500,
+    timeoutSecs: 360
+});
+
 app.use(limiter);
 app.use(cors(corsOptions));
 app.use(express.json());
 
-// Retry function with exponential backoff
-async function retryWithBackoff(fn, maxRetries = 3) {
-    for (let i = 0; i < maxRetries; i++) {
-        try {
-            return await fn();
-        } catch (error) {
-            if (i === maxRetries - 1) throw error;
-            const delay = Math.pow(2, i) * 1000; // exponential backoff: 1s, 2s, 4s
-            console.log(`[RETRY] Attempt ${i + 1} failed, retrying in ${delay}ms`);
-            await new Promise(resolve => setTimeout(resolve, delay));
-        }
-    }
-}
-
 // API Routes
 app.get('/api/transcript/:videoId', async (req, res) => {
     try {
-        const { videoId } = req.params;
-        console.log(`[DEBUG] Attempting to fetch transcript for video ID: ${videoId}`);
+        const videoId = req.params.videoId;
+        console.log('Fetching transcript for video:', videoId);
 
-        if (!videoId || videoId.length !== 11) {
-            console.error('[ERROR] Invalid video ID:', videoId);
-            return res.status(400).json({
-                error: 'Invalid video ID',
-                details: 'Video ID must be 11 characters long'
-            });
-        }
-
-        console.log('[DEBUG] Fetching video info...');
-        
-        const videoInfo = await retryWithBackoff(async () => {
-            return await ytdl.getInfo(videoId, {
-                requestOptions: {
-                    headers: {
-                        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                    }
-                }
-            });
-        });
-
-        // Get captions from video info
-        const captions = videoInfo.player_response.captions;
-        if (!captions || !captions.playerCaptionsTracklistRenderer) {
-            console.error('[ERROR] No captions available for video:', videoId);
-            return res.status(404).json({
-                error: 'No transcript available',
-                details: 'This video does not have captions'
-            });
-        }
-
-        // Get English captions or the first available caption track
-        const captionTracks = captions.playerCaptionsTracklistRenderer.captionTracks;
-        const englishTrack = captionTracks.find(track => 
-            track.languageCode === 'en' || 
-            track.vssId.includes('.en')
-        ) || captionTracks[0];
-
-        if (!englishTrack) {
-            console.error('[ERROR] No suitable caption track found:', videoId);
-            return res.status(404).json({
-                error: 'No transcript available',
-                details: 'Could not find suitable captions for this video'
-            });
-        }
-
-        // Fetch the actual transcript with retry logic
-        const fetchTranscript = async () => {
-            const response = await fetch(englishTrack.baseUrl, {
-                headers: {
-                    'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36'
-                }
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP error! status: ${response.status}`);
-            }
-            
-            return await response.text();
+        // Prepare input for the YouTube transcript scraper actor
+        const input = {
+            videoUrls: [`https://www.youtube.com/watch?v=${videoId}`],
+            maxResults: 1
         };
 
-        const xml = await retryWithBackoff(fetchTranscript);
-        
-        // Parse the XML to get transcript entries
-        const transcript = xml
-            .match(/<text[^>]*>[^<]*<\/text>/g)
-            .map(item => {
-                const start = parseFloat(item.match(/start="([^"]+)"/)[1]);
-                const duration = parseFloat(item.match(/dur="([^"]+)"/)[1]);
-                const text = item
-                    .match(/>([^<]*)</)[1]
-                    .replace(/&amp;/g, '&')
-                    .replace(/&lt;/g, '<')
-                    .replace(/&gt;/g, '>')
-                    .replace(/&quot;/g, '"')
-                    .replace(/&#39;/g, "'");
-                
-                return {
-                    text,
-                    start,
-                    duration
-                };
-            });
-
-        console.log(`[SUCCESS] Fetched transcript with ${transcript.length} entries`);
-        res.json(transcript);
-    } catch (error) {
-        console.error('[ERROR] Error fetching transcript:', {
-            videoId: req.params.videoId,
-            errorName: error.name,
-            errorMessage: error.message,
-            errorStack: error.stack
+        // Run the actor and wait for it to finish
+        const run = await apifyClient.actor("L57jETyu9qT6J7bs5").call(input, {
+            waitSecs: 60 // Wait up to 60 seconds for the run to finish
         });
-        
-        // Specific error handling for common YouTube errors
-        if (error.message.includes('410')) {
-            return res.status(429).json({
-                error: 'Rate limit exceeded',
-                message: 'Too many requests to YouTube. Please try again later.',
-                name: error.name,
-                details: 'YouTube temporarily blocked our request'
-            });
+
+        // Fetch results from the dataset
+        const { items } = await apifyClient.dataset(run.defaultDatasetId).listItems();
+
+        if (!items || items.length === 0 || !items[0].transcript) {
+            throw new Error('No transcript available for this video');
         }
-        
+
+        res.json(items[0].transcript);
+    } catch (error) {
+        console.error('Error fetching transcript:', error);
         res.status(500).json({ 
             error: 'Failed to fetch transcript',
-            message: error.message,
-            name: error.name,
-            details: 'Internal server error'
+            message: error.message 
         });
     }
 });
