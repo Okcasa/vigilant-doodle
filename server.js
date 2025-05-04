@@ -64,8 +64,7 @@ app.get('/health', (req, res) => {
     res.status(200).json({ 
         status: 'healthy',
         timestamp: new Date().toISOString(),
-        environment: process.env.NODE_ENV || 'development',
-        version: require('./package.json').version
+        environment: process.env.NODE_ENV || 'development'
     });
 });
 
@@ -82,5 +81,4 @@ app.use((err, req, res, next) => {
 app.listen(PORT, () => {
     console.log(`[STARTUP] Server running on port ${PORT}`);
     console.log(`[STARTUP] Environment: ${process.env.NODE_ENV || 'development'}`);
-    console.log('[STARTUP] Youtube Transcript API version:', require('youtube-transcript-api/package.json').version);
 }); 
