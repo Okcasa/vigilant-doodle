@@ -10,7 +10,7 @@
   "dependencies": {
     "cors": "^2.8.5",
     "express": "^4.21.2",
-    "youtube-sr": "^4.3.10"
+    "puppeteer": "^21.10.0"
   },
   "engines": {
     "node": ">=14.0.0"
