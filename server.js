@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const { getSubtitles } = require('youtube-captions-scraper');
+const captions = require('node-youtube-captions');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -24,9 +24,9 @@ app.get('/api/transcript/:videoId', async (req, res) => {
             });
         }
 
-        console.log('[DEBUG] Calling getSubtitles...');
-        const transcript = await getSubtitles({
-            videoID: videoId,
+        console.log('[DEBUG] Calling captions.getSubtitles...');
+        const transcript = await captions.getSubtitles({
+            videoId: videoId,
             lang: 'en'  // Try forcing English
         });
         
@@ -43,8 +43,8 @@ app.get('/api/transcript/:videoId', async (req, res) => {
         // Transform the response to match our expected format
         const formattedTranscript = transcript.map(item => ({
             text: item.text,
-            start: parseFloat(item.start),
-            duration: parseFloat(item.duration)
+            start: item.start,
+            duration: item.duration
         }));
 
         console.log(`[SUCCESS] Fetched transcript with ${formattedTranscript.length} entries`);
@@ -56,6 +56,16 @@ app.get('/api/transcript/:videoId', async (req, res) => {
             errorMessage: error.message,
             errorStack: error.stack
         });
+        
+        // Check for specific error types
+        if (error.message.includes('Could not find captions') || 
+            error.message.includes('No captions found')) {
+            return res.status(404).json({
+                error: 'No transcript available',
+                message: 'This video does not have captions available',
+                details: error.message
+            });
+        }
         
         res.status(500).json({ 
             error: 'Failed to fetch transcript',
