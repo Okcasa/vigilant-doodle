@@ -1,6 +1,6 @@
 const express = require('express');
 const cors = require('cors');
-const getSubtitles = require('youtube-caption-scraper');
+const { getSubtitles } = require('youtube-captions-scraper');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -43,8 +43,8 @@ app.get('/api/transcript/:videoId', async (req, res) => {
         // Transform the response to match our expected format
         const formattedTranscript = transcript.map(item => ({
             text: item.text,
-            start: item.start,
-            duration: item.dur
+            start: parseFloat(item.start),
+            duration: parseFloat(item.duration)
         }));
 
         console.log(`[SUCCESS] Fetched transcript with ${formattedTranscript.length} entries`);
