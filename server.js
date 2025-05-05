@@ -43,7 +43,9 @@ const apifyClient = new ApifyClient({
 });
 
 app.use(limiter);
-app.use(cors(corsOptions));
+app.use(cors({
+    origin: '*', // Allow all origins; for production, specify your frontend URL
+}));
 app.use(express.json());
 
 // API Routes
