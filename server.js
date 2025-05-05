@@ -42,6 +42,7 @@ const apifyClient = new ApifyClient({
     timeoutSecs: 360
 });
 
+app.set('trust proxy', 1); // Trust first proxy (Nginx)
 app.use(limiter);
 app.use(cors({
     origin: '*', // Allow all origins; for production, specify your frontend URL
@@ -67,6 +68,7 @@ app.get('/api/transcript/:videoId', async (req, res) => {
 
         // Fetch results from the dataset
         const { items } = await apifyClient.dataset(run.defaultDatasetId).listItems();
+        console.log('Apify run result:', items); // Log the full Apify response
 
         if (!items || items.length === 0 || !items[0].transcript) {
             throw new Error('No transcript available for this video');
