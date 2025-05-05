@@ -70,11 +70,11 @@ app.get('/api/transcript/:videoId', async (req, res) => {
         const { items } = await apifyClient.dataset(run.defaultDatasetId).listItems();
         console.log('Apify run result:', items); // Log the full Apify response
 
-        if (!items || items.length === 0 || !items[0].transcript) {
+        if (!items || items.length === 0) {
             throw new Error('No transcript available for this video');
         }
 
-        res.json(items[0].transcript);
+        res.json(items);
     } catch (error) {
         console.error('Error fetching transcript:', error);
         res.status(500).json({ 
