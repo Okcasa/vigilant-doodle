@@ -5,7 +5,6 @@ const path = require('path');
 const { ApifyClient } = require('apify-client');
 const rateLimit = require('express-rate-limit');
 const { exec } = require('child_process');
-const fetch = require('node-fetch');
 
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -42,10 +41,6 @@ const apifyClient = new ApifyClient({
     minDelayBetweenRetriesMillis: 500,
     timeoutSecs: 360
 });
-
-// Add environment variables for Apify
-const APIFY_API_KEY = process.env.APIFY_API_KEY;
-const APIFY_API_URL = 'https://api.apify.com/v2/acts/L57jETyu9qT6J7bs5/runs';
 
 app.set('trust proxy', 1); // Trust first proxy (Nginx)
 app.use(limiter);
@@ -150,34 +145,6 @@ app.post('/api/transcript-curl', async (req, res) => {
             return res.status(500).json({ error: 'Run parse error', details: parseErr });
         }
     });
-});
-
-// Add transcript extraction endpoint
-app.post('/api/extract-transcript', async (req, res) => {
-    try {
-        if (!APIFY_API_KEY) {
-            throw new Error('Apify API key not configured on server');
-        }
-
-        const { videoUrl } = req.body;
-        
-        const response = await fetch(APIFY_API_URL, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${APIFY_API_KEY}`
-            },
-            body: JSON.stringify({
-                "startUrls": [{ "url": videoUrl }]
-            })
-        });
-
-        const data = await response.json();
-        res.json(data);
-    } catch (error) {
-        console.error('Transcript extraction error:', error);
-        res.status(500).json({ error: error.message });
-    }
 });
 
 // Health check endpoint
